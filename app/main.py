@@ -9,10 +9,8 @@ import io
 import json
 import threading
 import ast
-import uuid
-import re
 from datetime import datetime
-from fastapi import FastAPI, Request, Form, BackgroundTasks, UploadFile, File, Query
+from fastapi import FastAPI, Request, Form, BackgroundTasks, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -36,14 +34,6 @@ templates = Jinja2Templates(directory="app/templates")
 #             "current_image": str, "log": [str], "csv_bytes": bytes|None } }
 _batch_jobs: dict = {}
 
-# ─── Upstream Release Cache ────────────────────────────────────────────────
-# { "repo": { "tag": "image_list_content" } }
-_release_image_cache: dict = {
-    "rke2": {},
-    "k3s": {},
-    "rancher": {}
-}
-
 # ─── Kubernetes Config ────────────────────────────────────────────────────────
 _k8s_ready = False
 try:
@@ -62,8 +52,6 @@ VEXHUB_INDEX_URL = "https://raw.githubusercontent.com/rancher/vexhub/main/index.
 SUSE_CVE_PORTAL_URL = "https://support.scc.suse.com/s/kb/How-to-use-SUSE-Rancher-Prime-s-CVE-Portal?language=en_US"
 SUSE_VEX_REPORT_URL = "https://support.scc.suse.com/s/kb/How-to-use-SUSE-Rancher-s-VEX-Reports?language=en_US"
 RANCHER_SCANS_URL = "https://scans.rancher.com/"
-
-SERVICE_ACCOUNT = os.getenv("SERVICE_ACCOUNT", "trivy-vex-app")
 
 
 # ─── K8s Helpers ─────────────────────────────────────────────────────────────
@@ -236,27 +224,12 @@ async def resolve_vex_url(image_name: str, vex_url: str) -> str:
             pkg_id = pkg.get("id", "")
             if pkg_id.endswith(f"/{repo_name}"):
                 resolved = base_url + pkg.get("location")
-                logger.info(f"Resolved VEX for {image_name} -> {resolved} (exact match)")
+                logger.info(f"Resolved VEX for {image_name} -> {resolved}")
                 return resolved
                 
-        # Priority 1.5: Strip 'mirrored-' prefix and try again
-        if repo_name.startswith("mirrored-"):
-            short_name = repo_name.replace("mirrored-", "")
-            # Try to find part of it in the packages
-            # e.g. mirrored-grafana-grafana-image-renderer -> grafana
-            # We look for the most specific match
-            for pkg in data.get("packages", []):
-                pkg_id = pkg.get("id", "")
-                if short_name in pkg_id or pkg_id.endswith(f"/{short_name}"):
-                    resolved = base_url + pkg.get("location")
-                    logger.info(f"Resolved VEX for {image_name} via mirrored-strip -> {resolved}")
-                    return resolved
-
-        # Priority 2: Substring match (more aggressive)
+        # Priority 2: Substring match
         for pkg in data.get("packages", []):
-            pkg_id = pkg.get("id", "")
-            # If the package ID contains the repo name or vice versa
-            if repo_name in pkg_id or (len(repo_name) > 5 and pkg_id.split("/")[-1] in repo_name):
+            if repo_name in pkg.get("id", ""):
                 resolved = base_url + pkg.get("location")
                 logger.info(f"Fuzzy resolved VEX for {image_name} -> {resolved}")
                 return resolved
@@ -344,7 +317,9 @@ async def run_scan(request: Request, image_name: str = Form(...), vex_report: st
             namespace = "default"
 
     job_name = f"trivy-scan-{os.urandom(4).hex()}"
-    logger.info(f"Launching scan job {job_name} in namespace '{namespace}' for image {image_name} using VEX Repository: rancher-vexhub")
+    # Resolve specific VEX file if using the Hub Index
+    resolved_vex = await resolve_vex_url(image_name, vex_report)
+    logger.info(f"Launching scan job {job_name} in namespace '{namespace}' for image {image_name} using VEX {resolved_vex}")
 
     if not _k8s_ready:
         return HTMLResponse(content="""
@@ -362,7 +337,6 @@ async def run_scan(request: Request, image_name: str = Form(...), vex_report: st
             spec=client.V1JobSpec(
                 template=client.V1PodTemplateSpec(
                     spec=client.V1PodSpec(
-                        service_account_name=SERVICE_ACCOUNT,
                         restart_policy="Never",
                         containers=[
                             client.V1Container(
@@ -370,10 +344,8 @@ async def run_scan(request: Request, image_name: str = Form(...), vex_report: st
                                 image="ghcr.io/aquasecurity/trivy:latest",
                                 command=["sh", "-c"],
                                 args=[
-                                    f"mkdir -p ~/.trivy/vex && "
-                                    f"echo 'repositories:\n  - name: rancher-vexhub\n    url: https://github.com/rancher/vexhub\n    enabled: true\n    username: \"\"\n    password: \"\"' > ~/.trivy/vex/repository.yaml && "
-                                    f"trivy vex repo download && "
-                                    f"trivy image --quiet --scanners vuln --vex repo --show-suppressed {image_name}"
+                                    f"wget -q {resolved_vex} -O report.openvex.json && "
+                                    f"trivy image --quiet --scanners vuln --vex report.openvex.json {image_name}"
                                 ],
                             )
                         ],
@@ -437,7 +409,12 @@ def _run_batch_worker(job_id: str, image_list: list, vex_report: str):
     namespace = _resolve_scan_namespace()
 
     # Determine VEX Source Name
-    vex_source_name = "VEX Repository: rancher-vexhub"
+    vex_source_name = "Unknown"
+    if vex_report:
+        # Try to get filename from URL
+        parts = vex_report.split("/")
+        if parts:
+            vex_source_name = parts[-1]
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -458,6 +435,11 @@ def _run_batch_worker(job_id: str, image_list: list, vex_report: str):
         j["current_image"] = image_name
         j["log"].append(f"[{idx}/{j['total']}] Starting scan: {image_name}")
 
+        # Resolve VEX for this specific image in the batch
+        # Using sync-wrapper or fetching inside since this is a worker thread
+        # To avoid multiple fetches, we could cache the index data, but for now simple resolution:
+        import asyncio
+        resolved_vex = asyncio.run(resolve_vex_url(image_name, vex_report))
 
         job_name = f"trivy-batch-{os.urandom(4).hex()}"
         try:
@@ -468,7 +450,6 @@ def _run_batch_worker(job_id: str, image_list: list, vex_report: str):
                 spec=client.V1JobSpec(
                     template=client.V1PodTemplateSpec(
                         spec=client.V1PodSpec(
-                            service_account_name=SERVICE_ACCOUNT,
                             restart_policy="Never",
                             containers=[
                                 client.V1Container(
@@ -476,11 +457,9 @@ def _run_batch_worker(job_id: str, image_list: list, vex_report: str):
                                     image="ghcr.io/aquasecurity/trivy:latest",
                                     command=["sh", "-c"],
                                     args=[
-                                        f"mkdir -p ~/.trivy/vex && "
-                                        f"echo 'repositories:\n  - name: rancher-vexhub\n    url: https://github.com/rancher/vexhub\n    enabled: true\n    username: \"\"\n    password: \"\"' > ~/.trivy/vex/repository.yaml && "
-                                        f"trivy vex repo download && "
+                                        f"wget -q {resolved_vex} -O report.openvex.json && "
                                         f"trivy image --quiet --scanners vuln "
-                                        f"--vex repo --show-suppressed "
+                                        f"--vex report.openvex.json "
                                         f"--format json {image_name}"
                                     ],
                                 )
@@ -611,257 +590,6 @@ def _run_batch_worker(job_id: str, image_list: list, vex_report: str):
     j["csv_bytes"] = output.getvalue().encode("utf-8")
     j["status"] = "done"
     j["log"].append("All images scanned. CSV ready.")
-
-
-@app.get("/api/tags/{image_name:path}")
-async def get_tags(image_name: str):
-    """Fetch tags for an image from Docker Hub."""
-    # Strip tag if user accidentally included it
-    if ":" in image_name:
-        image_name = image_name.split(":")[0]
-        
-    parts = image_name.split("/")
-    if len(parts) == 1:
-        namespace = "library"
-        repo = parts[0]
-    elif len(parts) == 2:
-        namespace = parts[0]
-        repo = parts[1]
-    else:
-        # Handle cases like registry/namespace/repo or just too many slashes
-        # For hub.docker.com, we usually expect namespace/repo
-        namespace = parts[-2]
-        repo = parts[-1]
-
-    url = f"https://hub.docker.com/v2/repositories/{namespace}/{repo}/tags?page_size=100"
-    logger.info(f"Fetching tags from {url}")
-    
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url)
-            if resp.status_code != 200:
-                return JSONResponse({"error": f"Failed to fetch tags: {resp.status_code}"}, status_code=resp.status_code)
-            
-            data = resp.json()
-            tags = [t["name"] for t in data.get("results", [])]
-            return JSONResponse({"tags": tags})
-    except Exception as e:
-        logger.error(f"Error fetching tags: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-
-@app.post("/scan/bom")
-async def scan_bom(image_name: str = Form(...)):
-    """Run a Trivy scan to get the full Bill of Materials (BOM) in JSON format."""
-    namespace = _resolve_scan_namespace()
-    job_name = f"trivy-bom-{os.urandom(4).hex()}"
-    
-    if not _k8s_ready:
-        return JSONResponse({"error": "Kubernetes not configured"}, status_code=500)
-
-    try:
-        batch_v1 = client.BatchV1Api()
-        job = client.V1Job(
-            api_version="batch/v1",
-            kind="Job",
-            metadata=client.V1ObjectMeta(name=job_name, namespace=namespace),
-            spec=client.V1JobSpec(
-                template=client.V1PodTemplateSpec(
-                    spec=client.V1PodSpec(
-                        service_account_name=SERVICE_ACCOUNT,
-                        restart_policy="Never",
-                        containers=[
-                            client.V1Container(
-                                name="trivy",
-                                image="ghcr.io/aquasecurity/trivy:latest",
-                                command=["sh", "-c"],
-                                args=[
-                                    f"trivy image --quiet --scanners vuln --format json --list-all-pkgs {image_name}"
-                                ],
-                            )
-                        ],
-                    )
-                ),
-                backoff_limit=0,
-                ttl_seconds_after_finished=300,
-            ),
-        )
-        batch_v1.create_namespaced_job(namespace=namespace, body=job)
-
-        v1 = client.CoreV1Api()
-        logs_raw = None
-        for _ in range(120): # 2 min timeout
-            time.sleep(1)
-            pods = v1.list_namespaced_pod(namespace=namespace, label_selector=f"job-name={job_name}")
-            if pods.items:
-                pod_name = pods.items[0].metadata.name
-                phase = pods.items[0].status.phase
-                if phase in ["Succeeded", "Failed"]:
-                    logs_raw = v1.read_namespaced_pod_log(name=pod_name, namespace=namespace)
-                    break
-        
-        if not logs_raw:
-            return JSONResponse({"error": "Scan timed out or pod failed"}, status_code=504)
-
-        # Robust JSON extraction
-        try:
-            # Strip ANSI color codes
-            ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-            logs = ansi_escape.sub('', logs_raw)
-
-            start_ptr = logs.find('{"SchemaVersion"')
-            if start_ptr == -1: start_ptr = logs.find('{')
-            last_curly = logs.rfind('}')
-            
-            if start_ptr == -1 or last_curly == -1:
-                logger.error(f"BOM Parse Failure: No JSON found. Raw sample: {logs[:500]}")
-                return JSONResponse({
-                    "error": "No valid JSON structure found in Trivy output.",
-                    "details": logs[:1000] # Return some logs for UI debugging
-                }, status_code=500)
-
-            json_str = logs[start_ptr:last_curly+1].strip()
-            
-            # Attempt to parse
-            data = None
-            try:
-                data = json.loads(json_str)
-            except Exception:
-                # JSON failed, try literal_eval for Python-style output
-                try:
-                    import ast
-                    # Clean further: literal_eval doesn't like null/true/false but Trivy uses them
-                    cleaned_literal = json_str.replace(": null", ": None").replace(": true", ": True").replace(": false", ": False")
-                    data = ast.literal_eval(cleaned_literal)
-                except Exception as fallback_err:
-                    logger.error(f"BOM Total Parse Failure: {fallback_err}. Sample: {json_str[:60]}")
-                    raise ValueError(f"Total Parse Failure: {fallback_err}")
-        except Exception as parse_err:
-            logger.error(f"BOM Parse Failure: {parse_err}")
-            return JSONResponse({
-                "error": f"Failed to parse Trivy JSON: {str(parse_err)}",
-                "details": logs_raw[:1000] if 'logs_raw' in locals() else "Unknown"
-            }, status_code=500)
-        
-        packages = []
-        results = data.get("Results") or []
-        for res in results:
-            target = res.get("Target", "")
-            rtype = res.get("Type", "")
-            for pkg in res.get("Packages") or []:
-                packages.append({
-                    "name": pkg.get("Name"),
-                    "version": pkg.get("Version"),
-                    "type": rtype,
-                    "target": target,
-                    "license": pkg.get("Licenses")
-                })
-        
-        return JSONResponse({"packages": packages, "image": image_name})
-
-    except Exception as e:
-        logger.error(f"BOM scan failed: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-
-@app.get("/api/upstream/releases")
-async def get_upstream_releases():
-    """Fetch recent releases for RKE2, K3s, and Rancher."""
-    repos = {
-        "rke2": "rancher/rke2",
-        "k3s": "k3s-io/k3s",
-        "rancher": "rancher/rancher"
-    }
-    results = {}
-    
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            for key, repo in repos.items():
-                url = f"https://api.github.com/repos/{repo}/releases?per_page=15"
-                resp = await client.get(url)
-                if resp.status_code == 200:
-                    releases = resp.json()
-                    results[key] = [r["tag_name"] for r in releases]
-                else:
-                    results[key] = []
-        return JSONResponse(results)
-    except Exception as e:
-        logger.error(f"Error fetching upstream releases: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-
-@app.get("/api/upstream/correlate")
-async def correlate_image(image_query: str = Query(...)):
-    """Search for an image in the image lists of recent releases."""
-    repos = {
-        "rke2": {
-            "owner_repo": "rancher/rke2",
-            "file_patterns": ["rke2-images-all.linux-amd64.txt", "rke2-images.txt"]
-        },
-        "k3s": {
-            "owner_repo": "k3s-io/k3s",
-            "file_patterns": ["k3s-images.txt"]
-        },
-        "rancher": {
-            "owner_repo": "rancher/rancher",
-            "file_patterns": ["rancher-images.txt"]
-        }
-    }
-    
-    correlation_results = []
-    
-    try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            # 1. Fetch tags/releases first
-            for product, cfg in repos.items():
-                rel_url = f"https://api.github.com/repos/{cfg['owner_repo']}/releases?per_page=10"
-                resp = await client.get(rel_url)
-                if resp.status_code != 200: continue
-                
-                releases = resp.json()
-                for rel in releases:
-                    tag = rel["tag_name"]
-                    
-                    # Check cache
-                    if tag not in _release_image_cache[product]:
-                        # Try to find a matching asset
-                        found_content = None
-                        for asset in rel.get("assets", []):
-                            if any(p in asset["name"] for p in cfg["file_patterns"]):
-                                logger.info(f"Downloading image list for {product} {tag} from {asset['browser_download_url']}")
-                                asset_resp = await client.get(asset["browser_download_url"])
-                                if asset_resp.status_code == 200:
-                                    found_content = asset_resp.text
-                                    _release_image_cache[product][tag] = found_content
-                                    break
-                        
-                        if not found_content:
-                            # Fallback: simple tag based download if asset not found in metadata
-                            # This is helpful for some Rancher tags that might not have a formal 'release' object with assets
-                            for pattern in cfg["file_patterns"]:
-                                dl_url = f"https://github.com/{cfg['owner_repo']}/releases/download/{tag}/{pattern}"
-                                logger.info(f"Trying fallback download for {product} {tag} from {dl_url}")
-                                try:
-                                    asset_resp = await client.get(dl_url)
-                                    if asset_resp.status_code == 200:
-                                        found_content = asset_resp.text
-                                        _release_image_cache[product][tag] = found_content
-                                        break
-                                except: pass
-
-                    # Search in content
-                    content = _release_image_cache[product].get(tag)
-                    if content and image_query in content:
-                        correlation_results.append({
-                            "product": product,
-                            "release": tag,
-                            "image_query": image_query
-                        })
-                        
-        return JSONResponse({"results": correlation_results})
-    except Exception as e:
-        logger.error(f"Correlation failed: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 @app.post("/scan/batch/start")
@@ -1056,58 +784,44 @@ async def ai_analyze(report_file: UploadFile = File(...), api_key: str = Form(No
         if len(content.strip()) < 10:
             return JSONResponse({"error": "Could not extract sufficient text from the report."}, status_code=400)
 
-        # 2. Extract potential image names from the report
-        # Look for patterns like registry.rancher.com/rancher/image:tag or rancher/image:tag
-        image_pattern = re.compile(r'([a-zA-Z0-9./\-_]+:[a-zA-Z0-9.\-_+]+)')
-        found_images = list(set(image_pattern.findall(content)))
-        logger.info(f"AI Analysis: Found {len(found_images)} potential images in report")
-        if found_images:
-            logger.info(f"AI Analysis: Sample images extracted: {found_images[:5]}")
-
-        # 3. Fetch actual VEX statements for discovered images
-        vex_statements = []
+        # 2. Fetch Rancher VEX Index for context
+        vex_context = "Rancher VEX Hub is currently unavailable."
         async with httpx.AsyncClient(timeout=10) as hc:
-            for img in found_images[:10]: # Limit to first 10 images to avoid giant prompts
-                resolved_url = await resolve_vex_url(img, VEXHUB_INDEX_URL)
-                if resolved_url and resolved_url != VEXHUB_INDEX_URL:
-                    try:
-                        v_resp = await hc.get(resolved_url)
-                        if v_resp.status_code == 200:
-                            vex_statements.append({
-                                "image": img,
-                                "source_url": resolved_url,
-                                "content": v_resp.json()
-                            })
-                    except Exception as vex_err:
-                        logger.warning(f"Failed to fetch VEX statement for {img}: {vex_err}")
+            try:
+                resp = await hc.get(VEXHUB_INDEX_URL)
+                if resp.status_code == 200:
+                    vex_context = json.dumps(resp.json())
+            except Exception as vex_err:
+                logger.warning(f"Failed to fetch VEX context for AI: {vex_err}")
 
-        # 4. Fetch Live Rancher Scan Stats
+        # 2.5 Fetch Live Rancher Scan Stats
         rancher_version = discover_rancher_version()
         live_stats = await _fetch_rancher_scan_stats(rancher_version)
 
-        # 5. Build Enhanced Prompt
-        # Note: Using 2.0-flash
+        # 3. Prompt Gemini
+        # Round 5: Using gemini-2.0-flash as it's present in the user's list
+        # We still use transport='rest' for stability
         genai.configure(
             api_key=final_key, 
             transport="rest"
         )
+        # Note: Using 2.0-flash as 1.5-flash was missing from your ListModels output
         model = genai.GenerativeModel("models/gemini-2.0-flash")
         
         prompt = f"""
         You are a SUSE Rancher Security Engineer. 
         I am providing you with:
         1. A vulnerability report (PDF/CSV text) from a customer.
-        2. Actual VEX (Vulnerability Exploitability eXchange) statements from Rancher for detected images.
-        3. Local Rancher/K8s cluster context.
+        2. A summary JSON of Rancher's VEX (Vulnerability Exploitability eXchange) data.
 
         EXTERNAL REPORT CONTENT:
         ---
         {content[:15000]} # Limit context window
         ---
 
-        RANCHER VEX GROUND TRUTH (Actual OpenVEX statements):
+        RANCHER VEX CONTEXT:
         ---
-        {json.dumps(vex_statements, indent=2) if vex_statements else "No specific VEX statements found for the images in this report."}
+        {vex_context}
         ---
 
         RANCHER LIVE SCAN STATS (from scans.rancher.com):
@@ -1116,22 +830,24 @@ async def ai_analyze(report_file: UploadFile = File(...), api_key: str = Form(No
         ---
 
         TASK:
-        Detailed cross-reference and TRIAGE the CVEs in the customer report against the Rancher VEX Ground Truth.
+        Detailed cross-reference and TRIAGE the CVEs in the customer report against all available SUSE/Rancher intelligence.
         
-        CRITICAL INSTRUCTIONS:
-        1. If a CVE in the customer report matches a VEX statement for a specific image, use the "Status" and "Statement" from that VEX file as the definitive answer.
-        2. If a CVE is mentioned as "not_affected" in the ground truth, explain why based on the VEX statement.
-        3. If no ground truth is found, use the SUSE CVE Portal and Rancher Daily Scans as supplementary sources.
+        SOURCES TO CONSIDER:
+        1. Rancher VEX Context (JSON provided above).
+        2. SUSE/Rancher Security Portals:
+           - SUSE CVE Portal: {SUSE_CVE_PORTAL_URL}
+           - SUSE VEX Reports: {SUSE_VEX_REPORT_URL}
+           - Rancher Daily Scans: {RANCHER_SCANS_URL}
 
-        SOURCES FOR FURTHER RESEARCH:
-        - SUSE CVE Portal: {SUSE_CVE_PORTAL_URL}
-        - SUSE VEX Reports: {SUSE_VEX_REPORT_URL}
-        - Rancher Daily Scans: {RANCHER_SCANS_URL}
-
+        IDENTIFY:
+        - Which CVEs are "not_affected", "suppressed", or "fixed" in Rancher Prime versions.
+        - Strategic advice: What to ignore, what to triage, and how to verify using the SUSE CVE Portal.
+        - Explain how the customer should use the SUSE KB 000021573 and 000021574 for their remediation workflow.
+        
         Format your response in clean Markdown with:
-        - **Summary Table**: CVE, Image, Severity, VEX Status (from ground truth), Recommendation.
-        - **Detailed Triage**: Deep dive into the most critical findings using the VEX statements.
-        - **Remediation Workflow**: How to use SUSE KB 000021573 and 000021574.
+        - **Summary Table**: CVE, Severity, VEX Status, Action.
+        - **Detailed Triage**: Deep dive into the most critical findings.
+        - **Rancher Integration Recommendations**: Specific SUSE KBs to follow.
         
         Be concise, technical, and authoritative.
         """

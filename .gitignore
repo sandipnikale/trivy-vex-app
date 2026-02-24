@@ -1,0 +1,7 @@
+*.pyc
+__pycache__/
+venv/
+.env
+.gemini/
+.DS_Store
+kubeconfig.yaml

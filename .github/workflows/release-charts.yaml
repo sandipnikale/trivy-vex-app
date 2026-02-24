@@ -6,12 +6,11 @@ on:
       - main
     paths:
       - 'charts/**'
-  workflow_dispatch:
 
 jobs:
   release:
-    permissions:
-      contents: write
+    # permissions:
+    #   contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,7 +30,5 @@ jobs:
 
       - name: Run chart-releaser
         uses: helm/chart-releaser-action@v1.4.1
-        with:
-          skip_existing: true
         env:
           CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"

@@ -40,8 +40,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+<<<<<<< HEAD
             - name: SERVICE_ACCOUNT
               value: {{ include "trivy-vex-app.fullname" . }}
+=======
+>>>>>>> eb1c4bb (Initial commit for trivy-vex-app)
           volumeMounts:
             - name: ai-key
               mountPath: "/etc/config"
