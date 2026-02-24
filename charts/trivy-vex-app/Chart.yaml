@@ -1,0 +1,6 @@
+apiVersion: v2
+name: trivy-vex-app
+description: A simple web app to run Trivy scans with Rancher VEX reports.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
