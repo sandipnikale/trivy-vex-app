@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rancher VEX Scanner</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap"
+        rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .mono {
+            font-family: 'JetBrains+Mono', monospace;
+        }
+    </style>
+</head>
+
+<body class="bg-[#0f172a] text-slate-200" hx-get="/security/scanner" hx-trigger="load" hx-target="#tab-content">
+    <div class="flex flex-col h-screen overflow-hidden">
+        <!-- Top Navigation -->
+        <nav class="bg-slate-900 border-b border-slate-800 px-8 py-4 flex justify-between items-center shrink-0">
+            <div class="flex items-center gap-4 cursor-pointer group" hx-get="/security/scanner"
+                hx-target="#tab-content">
+                <img src="/static/suse-geeko.png" alt="Geeko Logo"
+                    class="h-12 w-auto group-hover:scale-110 transition-transform">
+                <div class="flex flex-col">
+                    <h1 class="text-lg font-semibold tracking-tight text-white leading-none">Rancher VEX Scanner</h1>
+                </div>
+            </div>
+
+            <div class="flex gap-8 items-center">
+                <!-- AI Key Config -->
+                <div class="relative group">
+                    <button onclick="toggleAIKeyModal()"
+                        class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 transition-all">
+                        <span id="ai-status-dot" class="w-1.5 h-1.5 rounded-full bg-slate-600"></span>
+                        <span class="text-xs font-bold text-blue-400">AI</span>
+                        <svg class="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31-.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                    </button>
+                    <!-- Simple Modal -->
+                    <div id="ai-key-modal"
+                        class="hidden absolute right-0 mt-2 w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl p-4 z-50">
+                        <div class="flex flex-col gap-4">
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase mb-2">Gemini API
+                                    Key</label>
+                                <input type="password" id="gemini-api-key" placeholder="Paste key here..."
+                                    class="w-full bg-slate-800 border-slate-700 rounded-lg py-2 px-3 text-xs focus:ring-2 focus:ring-blue-500 outline-none mb-3 text-slate-200">
+                                <div id="ai-status-text" class="text-[10px] text-slate-500 italic mb-3">Checking
+                                    configuration...</div>
+                            </div>
+
+                            <div class="flex gap-2">
+                                <button onclick="saveAIKey()"
+                                    class="flex-1 bg-slate-800 hover:bg-slate-700 py-2 rounded-lg text-xs font-bold text-slate-300 transition-all border border-slate-700">Save
+                                    Locally</button>
+                                <button onclick="persistAIKey(event)"
+                                    class="flex-1 bg-blue-600 hover:bg-blue-500 py-2 rounded-lg text-xs font-bold text-white transition-all">Persist
+                                    to Cluster</button>
+                            </div>
+                            <p class="text-[9px] text-slate-600 leading-tight">"Persist to Cluster" saves the key as a
+                                Kubernetes Secret for persistent server-side access across sessions.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="flex-1 flex flex-col bg-[#020617] overflow-hidden">
+            <!-- Scrollable View Content -->
+            <div id="tab-content" class="flex-1 p-8 overflow-auto">
+                <div class="max-w-6xl mx-auto">
+                    <div class="flex flex-col justify-center items-center h-64 gap-4 opacity-20">
+                        <svg class="animate-spin h-10 w-10 text-blue-500" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                            </circle>
+                            <path class="opacity-75" fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                            </path>
+                        </svg>
+                        <span class="text-sm font-medium">Initializing Rancher VEX Scanner...</span>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        function toggleAIKeyModal() {
+            document.getElementById('ai-key-modal').classList.toggle('hidden');
+            if (!document.getElementById('ai-key-modal').classList.contains('hidden')) {
+                checkAIStatus();
+            }
+        }
+
+        async function checkAIStatus() {
+            const statusText = document.getElementById('ai-status-text');
+            const dot = document.getElementById('ai-status-dot');
+            try {
+                const resp = await fetch('/ai/config/status');
+                const data = await resp.json();
+
+                if (data.status === 'configured') {
+                    dot.className = "w-1.5 h-1.5 rounded-full bg-emerald-500";
+                    statusText.innerHTML = `✓ Configured via ${data.source.toUpperCase()} 
+                        <a href="/ai/config/status" target="_blank" class="block text-[8px] text-blue-400 underline mt-1">Debug Config</a>
+                        <a href="/ai/debug/models" target="_blank" class="block text-[8px] text-blue-400 underline mt-0.5">List Models</a>`;
+                    statusText.className = "text-[10px] text-emerald-500 italic mb-3 font-bold";
+                } else {
+                    const localKey = localStorage.getItem('gemini_api_key');
+                    if (localKey) {
+                        dot.className = "w-1.5 h-1.5 rounded-full bg-blue-500";
+                        statusText.innerHTML = `✓ Configured via Browser Store
+                            <a href="/ai/debug/models?api_key=${localKey}" target="_blank" class="block text-[8px] text-blue-400 underline mt-1">Test Key Models</a>`;
+                        statusText.className = "text-[10px] text-blue-400 italic mb-3";
+                    } else {
+                        dot.className = "w-1.5 h-1.5 rounded-full bg-slate-600";
+                        statusText.textContent = "⚠ Not Configured";
+                        statusText.className = "text-[10px] text-slate-500 italic mb-3";
+                    }
+                }
+            } catch (e) {
+                statusText.textContent = "Error checking status";
+            }
+        }
+
+        function saveAIKey() {
+            const key = document.getElementById('gemini-api-key').value;
+            if (!key) return;
+            localStorage.setItem('gemini_api_key', key);
+            checkAIStatus();
+            alert('API Key saved to browser storage');
+        }
+
+        async function persistAIKey(event) {
+            const key = document.getElementById('gemini-api-key').value;
+            if (!key) {
+                alert('Please enter a key first');
+                return;
+            }
+
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = "Persisting...";
+
+            const formData = new FormData();
+            formData.append('api_key', key);
+
+            try {
+                const resp = await fetch('/ai/config/save', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (resp.ok) {
+                    alert('✓ Key persisted to Cluster (K8s Secret)');
+                    localStorage.removeItem('gemini_api_key'); // No longer needed in browser
+                    checkAIStatus();
+                    toggleAIKeyModal();
+                } else {
+                    const err = await resp.json();
+                    alert('Error: ' + err.error);
+                }
+            } catch (e) {
+                alert('Connection error');
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "Persist to Cluster";
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedKey = localStorage.getItem('gemini_api_key');
+            if (savedKey) document.getElementById('gemini-api-key').value = savedKey;
+            checkAIStatus();
+        });
+    </script>
+</body>
+
+</html>

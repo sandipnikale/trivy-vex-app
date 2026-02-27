@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+httpx
+kubernetes
+jinja2
+python-multipart
+PyYAML
+google-generativeai
+pypdf

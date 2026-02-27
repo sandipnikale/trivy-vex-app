@@ -1,0 +1,46 @@
+{{- if .Values.rbac.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "trivy-vex-app.fullname" . }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "trivy-vex-app.fullname" . }}-discovery
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["nodes", "pods", "pods/log", "namespaces", "services", "endpoints", "secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "get", "list", "watch", "delete"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["networkpolicies"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["kyverno.io", "wgpolicyk8s.io"]
+  resources: ["clusterpolicies", "policies", "policyreports"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["constraints.gatekeeper.sh", "templates.gatekeeper.sh"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["policies.kubewarden.io"]
+  resources: ["clusteradmissionpolicies", "admissionpolicies"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "trivy-vex-app.fullname" . }}-discovery
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "trivy-vex-app.fullname" . }}-discovery
+subjects:
+- kind: ServiceAccount
+  name: {{ include "trivy-vex-app.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}
