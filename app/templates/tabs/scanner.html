@@ -31,7 +31,7 @@
             <p class="text-xs text-slate-500 mb-4">Scan a single container image using Rancher's VEX intelligence to
                 filter out noise.</p>
 
-            <form hx-post="/scan" hx-target="#scan-results" hx-indicator="#scan-spinner"
+            <form hx-post="scan" hx-target="#scan-results" hx-indicator="#scan-spinner"
                 class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                 <div>
                     <label class="block text-[10px] font-bold text-slate-500 uppercase mb-2">Container Image</label>
@@ -350,7 +350,7 @@
             formData.append('images', images);
             formData.append('vex_report', vex);
 
-            const resp = await fetch('/scan/batch/start', { method: 'POST', body: formData });
+            const resp = await fetch('scan/batch/start', { method: 'POST', body: formData });
             const data = await resp.json();
 
             if (data.error) throw new Error(data.error);
@@ -374,7 +374,7 @@
         const downContainer = document.getElementById('batch-download-container');
         const downLink = document.getElementById('batch-download-link');
 
-        batchEventSource = new EventSource(`/scan/batch/progress/${jobId}`);
+        batchEventSource = new EventSource(`scan/batch/progress/${jobId}`);
 
         batchEventSource.onmessage = (e) => {
             const data = JSON.parse(e.data);
@@ -405,7 +405,7 @@
                 btn.classList.remove('opacity-50');
                 status.textContent = "COMPLETED";
                 downContainer.classList.remove('hidden');
-                downLink.href = `/scan/batch/download/${jobId}`;
+                downLink.href = `scan/batch/download/${jobId}`;
             }
         };
 
@@ -423,7 +423,7 @@
         let isConfiguredOnServer = false;
 
         try {
-            const statusResp = await fetch(`/ai/config/status?t=${Date.now()}`);
+            const statusResp = await fetch(`ai/config/status?t=${Date.now()}`);
             const statusData = await statusResp.json();
             isConfiguredOnServer = (statusData.status === 'configured');
             console.log("AI Server Config Status:", statusData);
@@ -466,7 +466,7 @@
         }
 
         try {
-            const resp = await fetch('/ai/analyze', {
+            const resp = await fetch('ai/analyze', {
                 method: 'POST',
                 body: formData
             });
@@ -519,7 +519,7 @@
         btn.textContent = "Fetching...";
 
         try {
-            const resp = await fetch(`/api/tags/${encodeURIComponent(imageBase)}`);
+            const resp = await fetch(`api/tags/${encodeURIComponent(imageBase)}`);
             const data = await resp.json();
 
             if (data.error) throw new Error(data.error);
@@ -560,7 +560,7 @@
             const formData = new FormData();
             formData.append('image_name', fullImage);
 
-            const resp = await fetch('/scan/bom', { method: 'POST', body: formData });
+            const resp = await fetch('scan/bom', { method: 'POST', body: formData });
             const data = await resp.json();
 
             if (data.error) {
@@ -652,7 +652,7 @@
         `;
 
         try {
-            const resp = await fetch(`/api/upstream/correlate?image_query=${encodeURIComponent(query)}`);
+            const resp = await fetch(`api/upstream/correlate?image_query=${encodeURIComponent(query)}`);
             const data = await resp.json();
 
             if (data.error) throw new Error(data.error);
