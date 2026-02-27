@@ -1,2 +1,14 @@
 apiVersion: v1
-entries: {}
+entries:
+  trivy-vex-app:
+  - apiVersion: v2
+    appVersion: 1.0.0
+    created: "2026-02-27T10:33:55.651505485Z"
+    description: A simple web app to run Trivy scans with Rancher VEX reports.
+    digest: 58b66fae439683a73db5e3eb078fa41d365f599ad6e0066f1b40fa5173409260
+    name: trivy-vex-app
+    type: application
+    urls:
+    - https://github.com/sandipnikale/trivy-vex-app/releases/download/trivy-vex-app-0.1.4/trivy-vex-app-0.1.4.tgz
+    version: 0.1.4
+generated: "2026-02-27T10:33:55.651517277Z"
