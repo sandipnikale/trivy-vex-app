@@ -1,5 +1,5 @@
 image:
-  repository: trivy-vex-app
+  repository: ghcr.io/sandipnikale/trivy-vex-app
   tag: latest
   pullPolicy: Always
 
