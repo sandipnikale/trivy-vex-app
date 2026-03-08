@@ -1,9 +1,5 @@
 image:
-<<<<<<< HEAD
   repository: ghcr.io/sandipnikale/trivy-vex-app
-=======
-  repository: trivy-vex-app
->>>>>>> eb1c4bb (Initial commit for trivy-vex-app)
   tag: latest
   pullPolicy: Always
 
