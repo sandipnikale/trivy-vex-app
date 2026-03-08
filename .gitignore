@@ -4,3 +4,4 @@ venv/
 .env
 .gemini/
 .DS_Store
+kubeconfig.yaml

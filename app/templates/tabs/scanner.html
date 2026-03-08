@@ -10,6 +10,14 @@
             class="flex items-center gap-2 px-4 py-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-emerald-400 font-medium text-sm transition-all focus:outline-none">
             <span>⬡</span> Batch Scan
         </button>
+        <button onclick="switchMode('bom')" id="tab-bom"
+            class="flex items-center gap-2 px-4 py-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-orange-400 font-medium text-sm transition-all focus:outline-none">
+            <span>❒</span> Component Explorer
+        </button>
+        <button onclick="switchMode('releases')" id="tab-releases"
+            class="flex items-center gap-2 px-4 py-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-cyan-400 font-medium text-sm transition-all focus:outline-none">
+            <span>⎐</span> Release Finder
+        </button>
         <button onclick="switchMode('ai')" id="tab-ai"
             class="flex items-center gap-2 px-4 py-2 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-purple-400 font-medium text-sm transition-all focus:outline-none">
             <span>✧</span> AI Report Analysis
@@ -23,7 +31,7 @@
             <p class="text-xs text-slate-500 mb-4">Scan a single container image using Rancher's VEX intelligence to
                 filter out noise.</p>
 
-            <form hx-post="/scan" hx-target="#scan-results" hx-indicator="#scan-spinner"
+            <form hx-post="scan" hx-target="#scan-results" hx-indicator="#scan-spinner"
                 class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                 <div>
                     <label class="block text-[10px] font-bold text-slate-500 uppercase mb-2">Container Image</label>
@@ -124,7 +132,101 @@
         </div>
     </div>
 
-    <!-- VIEW 3: AI Analysis -->
+    <!-- VIEW 3: Component Explorer -->
+    <div id="view-bom" class="hidden flex flex-col gap-4 flex-1 min-h-0">
+        <div class="bg-slate-900 border border-orange-900/40 p-5 rounded-xl shadow-lg shrink-0">
+            <h3 class="text-base font-medium mb-1 flex items-center gap-2 text-slate-200">
+                <span class="text-orange-400">❒</span> Rancher Image Component Explorer
+            </h3>
+            <p class="text-xs text-slate-500 mb-4">Discover package versions across different image tags. Find the exact
+                version where a fix was introduced.</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                <div class="md:col-span-2">
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-2">Image Name</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="bom-image-base" placeholder="e.g. rancher/hardened-dns-node-cache"
+                            class="flex-1 bg-slate-800 border-slate-700 rounded-lg py-2 px-3 text-xs text-slate-300 outline-none focus:ring-1 focus:ring-orange-500">
+                        <button onclick="fetchImageTags()" id="fetch-tags-btn"
+                            class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg text-xs font-bold transition-colors">
+                            Fetch Tags
+                        </button>
+                    </div>
+                </div>
+                <div id="tag-selector-container" class="hidden">
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-2">Select Tag</label>
+                    <select id="bom-image-tag"
+                        class="w-full bg-slate-800 border-slate-700 rounded-lg py-2 px-3 text-xs text-slate-300 outline-none focus:ring-1 focus:ring-orange-500">
+                    </select>
+                </div>
+                <div id="bom-scan-btn-container" class="hidden">
+                    <button onclick="runBOMScan()" id="bom-scan-btn"
+                        class="w-full bg-orange-600 hover:bg-orange-500 text-white font-semibold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-xl shadow-orange-900/20">
+                        <span>Scan Packages</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="bom-results"
+            class="flex-1 bg-slate-950 border border-slate-800 rounded-xl overflow-hidden flex flex-col shadow-inner">
+            <div id="bom-header"
+                class="hidden p-4 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
+                <div class="flex flex-col">
+                    <span id="bom-image-display" class="text-xs font-bold text-orange-400"></span>
+                    <span id="bom-pkgs-count" class="text-[10px] text-slate-500"></span>
+                </div>
+                <div class="relative">
+                    <input type="text" id="bom-search" oninput="filterBOMTable()"
+                        placeholder="Filter packages (e.g. coredns)..."
+                        class="bg-slate-800 border-slate-700 rounded-lg py-1.5 px-3 text-xs text-slate-300 outline-none focus:ring-1 focus:ring-orange-500 w-64">
+                </div>
+            </div>
+            <div id="bom-content" class="flex-1 overflow-auto p-0">
+                <div class="h-full flex flex-col items-center justify-center text-slate-700 italic gap-2 text-center">
+                    <span class="text-sm">Enter image name to explore components...</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- VIEW 4: Release Finder -->
+    <div id="view-releases" class="hidden flex flex-col gap-4 flex-1 min-h-0">
+        <div class="bg-slate-900 border border-cyan-900/40 p-5 rounded-xl shadow-lg shrink-0">
+            <h3 class="text-base font-medium mb-1 flex items-center gap-2 text-slate-200">
+                <span class="text-cyan-400">⎐</span> Upstream Release Correlation
+            </h3>
+            <p class="text-xs text-slate-500 mb-4">Find which RKE2, K3s, or Rancher versions bundle a specific image and
+                tag.</p>
+
+            <div class="flex gap-4 items-end">
+                <div class="flex-1">
+                    <label class="block text-[10px] font-bold text-slate-500 uppercase mb-2">Image Tag to Locate</label>
+                    <input type="text" id="release-search-query"
+                        placeholder="e.g. coredns:v1.14.0 or rancher/hardened-dns-node-cache:1.26.7-build..."
+                        class="w-full bg-slate-800 border-slate-700 rounded-lg py-2 px-3 text-xs text-slate-300 outline-none focus:ring-1 focus:ring-cyan-500">
+                </div>
+                <button onclick="findUpstreamReleases()" id="release-find-btn"
+                    class="bg-cyan-600 hover:bg-cyan-500 text-white font-semibold px-8 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-xl shadow-cyan-900/20">
+                    <span>Search Upstream Releases</span>
+                </button>
+            </div>
+        </div>
+
+        <div id="release-results"
+            class="flex-1 bg-slate-950 border border-slate-800 rounded-xl overflow-auto min-h-0 shadow-inner p-6">
+            <div
+                class="h-full flex flex-col items-center justify-center text-slate-700 italic gap-2 text-center max-w-md mx-auto">
+                <svg class="w-12 h-12 opacity-10 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                </svg>
+                <span class="text-sm">Search for an image to see bundled upstream versions...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- VIEW 5: AI Analysis -->
     <div id="view-ai" class="hidden flex flex-col gap-4 flex-1 min-h-0">
         <div class="bg-slate-900 border border-purple-900/40 p-5 rounded-xl shadow-lg shrink-0">
             <h3 class="text-base font-medium mb-1 flex items-center gap-2 text-slate-200">
@@ -198,22 +300,26 @@
         const views = {
             'single': document.getElementById('view-single'),
             'batch': document.getElementById('view-batch'),
-            'ai': document.getElementById('view-ai')
+            'ai': document.getElementById('view-ai'),
+            'bom': document.getElementById('view-bom'),
+            'releases': document.getElementById('view-releases')
         };
         const tabs = {
             'single': document.getElementById('tab-single'),
             'batch': document.getElementById('tab-batch'),
-            'ai': document.getElementById('tab-ai')
+            'ai': document.getElementById('tab-ai'),
+            'bom': document.getElementById('tab-bom'),
+            'releases': document.getElementById('tab-releases')
         };
 
         Object.keys(views).forEach(k => {
             if (k === mode) {
                 views[k].classList.remove('hidden');
-                tabs[k].classList.add(k === 'ai' ? 'bg-purple-600' : (k === 'batch' ? 'bg-emerald-600' : 'bg-blue-600'), 'text-white');
-                tabs[k].classList.remove('text-slate-400', 'hover:bg-slate-800', 'hover:text-' + (k === 'ai' ? 'purple' : (k === 'batch' ? 'emerald' : 'blue')) + '-400');
+                tabs[k].classList.add(k === 'ai' ? 'bg-purple-600' : (k === 'batch' ? 'bg-emerald-600' : (k === 'bom' ? 'bg-orange-600' : (k === 'releases' ? 'bg-cyan-600' : 'bg-blue-600'))), 'text-white');
+                tabs[k].classList.remove('text-slate-400', 'hover:bg-slate-800', 'hover:text-' + (k === 'ai' ? 'purple' : (k === 'batch' ? 'emerald' : (k === 'bom' ? 'orange' : (k === 'releases' ? 'cyan' : 'blue')))) + '-400');
             } else {
                 views[k].classList.add('hidden');
-                tabs[k].classList.remove('bg-blue-600', 'bg-emerald-600', 'bg-purple-600', 'text-white');
+                tabs[k].classList.remove('bg-blue-600', 'bg-emerald-600', 'bg-purple-600', 'bg-orange-600', 'bg-cyan-600', 'text-white');
                 tabs[k].classList.add('text-slate-400', 'hover:bg-slate-800');
             }
         });
@@ -244,7 +350,7 @@
             formData.append('images', images);
             formData.append('vex_report', vex);
 
-            const resp = await fetch('/scan/batch/start', { method: 'POST', body: formData });
+            const resp = await fetch('scan/batch/start', { method: 'POST', body: formData });
             const data = await resp.json();
 
             if (data.error) throw new Error(data.error);
@@ -268,7 +374,7 @@
         const downContainer = document.getElementById('batch-download-container');
         const downLink = document.getElementById('batch-download-link');
 
-        batchEventSource = new EventSource(`/scan/batch/progress/${jobId}`);
+        batchEventSource = new EventSource(`scan/batch/progress/${jobId}`);
 
         batchEventSource.onmessage = (e) => {
             const data = JSON.parse(e.data);
@@ -299,7 +405,7 @@
                 btn.classList.remove('opacity-50');
                 status.textContent = "COMPLETED";
                 downContainer.classList.remove('hidden');
-                downLink.href = `/scan/batch/download/${jobId}`;
+                downLink.href = `scan/batch/download/${jobId}`;
             }
         };
 
@@ -317,7 +423,7 @@
         let isConfiguredOnServer = false;
 
         try {
-            const statusResp = await fetch(`/ai/config/status?t=${Date.now()}`);
+            const statusResp = await fetch(`ai/config/status?t=${Date.now()}`);
             const statusData = await statusResp.json();
             isConfiguredOnServer = (statusData.status === 'configured');
             console.log("AI Server Config Status:", statusData);
@@ -360,7 +466,7 @@
         }
 
         try {
-            const resp = await fetch('/ai/analyze', {
+            const resp = await fetch('ai/analyze', {
                 method: 'POST',
                 body: formData
             });
@@ -372,14 +478,14 @@
 
             const data = await resp.json();
 
-            // Format results
+            // Render results
             results.innerHTML = `
-                <div class="prose prose-invert max-w-none">
+                <div class="markdown-content">
                     <div class="flex items-center gap-3 mb-6 border-b border-slate-800 pb-4">
                         <span class="bg-purple-900/40 text-purple-400 p-2 rounded-lg">✧</span>
-                        <h2 class="text-xl font-bold m-0">VEX Intelligence Report</h2>
+                        <h2 class="text-xl font-bold m-0 text-white">VEX Intelligence Report</h2>
                     </div>
-                    <div class="text-slate-300 leading-relaxed whitespace-pre-wrap text-sm">${data.analysis}</div>
+                    <div class="text-slate-300 leading-relaxed text-sm">${marked.parse(data.analysis)}</div>
                 </div>
             `;
         } catch (err) {
@@ -388,6 +494,250 @@
             btn.disabled = false;
             btn.classList.remove('opacity-70');
             spinner.classList.add('hidden');
+        }
+    }
+
+    // --- COMPONENT EXPLORER LOGIC ---
+    let fullBOMData = [];
+
+    async function fetchImageTags() {
+        let imageBase = document.getElementById('bom-image-base').value.trim();
+        if (!imageBase) return alert("Enter image name (e.g. rancher/rancher)");
+
+        // Strip tag if user included it
+        if (imageBase.includes(':')) {
+            imageBase = imageBase.split(':')[0];
+            document.getElementById('bom-image-base').value = imageBase;
+        }
+
+        const btn = document.getElementById('fetch-tags-btn');
+        const tagSelect = document.getElementById('bom-image-tag');
+        const tagContainer = document.getElementById('tag-selector-container');
+        const scanContainer = document.getElementById('bom-scan-btn-container');
+
+        btn.disabled = true;
+        btn.textContent = "Fetching...";
+
+        try {
+            const resp = await fetch(`api/tags/${encodeURIComponent(imageBase)}`);
+            const data = await resp.json();
+
+            if (data.error) throw new Error(data.error);
+
+            tagSelect.innerHTML = data.tags.map(t => `<option value="${t}">${t}</option>`).join('');
+            tagContainer.classList.remove('hidden');
+            scanContainer.classList.remove('hidden');
+        } catch (err) {
+            alert("Error fetching tags: " + err.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "Fetch Tags";
+        }
+    }
+
+    async function runBOMScan() {
+        let imageBase = document.getElementById('bom-image-base').value.trim();
+        if (imageBase.includes(':')) {
+            imageBase = imageBase.split(':')[0];
+            document.getElementById('bom-image-base').value = imageBase;
+        }
+
+        const tag = document.getElementById('bom-image-tag').value;
+        const fullImage = `${imageBase}:${tag}`;
+
+        const btn = document.getElementById('bom-scan-btn');
+        const content = document.getElementById('bom-content');
+        const header = document.getElementById('bom-header');
+        const display = document.getElementById('bom-image-display');
+        const count = document.getElementById('bom-pkgs-count');
+
+        btn.disabled = true;
+        btn.innerHTML = `<svg class="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Scanning...`;
+        content.innerHTML = `<div class="p-12 text-center text-slate-500 animate-pulse">Running Trivy analysis on ${fullImage}... This might take a minute.</div>`;
+        header.classList.add('hidden');
+
+        try {
+            const formData = new FormData();
+            formData.append('image_name', fullImage);
+
+            const resp = await fetch('scan/bom', { method: 'POST', body: formData });
+            const data = await resp.json();
+
+            if (data.error) {
+                let errorHtml = `<div class="p-12 text-center flex flex-col gap-4">
+                    <div class="text-red-400 font-bold text-lg">${data.error}</div>`;
+                if (data.details) {
+                    errorHtml += `<div class="bg-black/50 p-4 rounded border border-red-900/30 text-left font-mono text-[10px] text-red-300/70 overflow-x-auto">
+                        <div class="text-[9px] uppercase font-bold text-red-500 mb-2 border-b border-red-900/50 pb-1">Raw Scanner Output (First 1000 chars)</div>
+                        <pre>${data.details}</pre>
+                    </div>`;
+                }
+                errorHtml += `</div>`;
+                content.innerHTML = errorHtml;
+                return;
+            }
+
+            fullBOMData = data.packages;
+            renderBOMTable(fullBOMData);
+
+            display.textContent = fullImage;
+            count.textContent = `Found ${fullBOMData.length} components`;
+            header.classList.remove('hidden');
+        } catch (err) {
+            content.innerHTML = `<div class="p-12 text-center text-red-400">Scan Failed: ${err.message}</div>`;
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "Scan Packages";
+        }
+    }
+
+    function renderBOMTable(packages) {
+        const content = document.getElementById('bom-content');
+        if (!packages || packages.length === 0) {
+            content.innerHTML = `<div class="p-12 text-center text-slate-500">No packages found or filtered out.</div>`;
+            return;
+        }
+
+        let html = `
+            <table class="w-full text-left border-collapse text-xs">
+                <thead class="bg-slate-900 sticky top-0">
+                    <tr>
+                        <th class="px-4 py-3 font-bold text-slate-400 border-b border-slate-800">Library / Package</th>
+                        <th class="px-4 py-3 font-bold text-slate-400 border-b border-slate-800">Version</th>
+                        <th class="px-4 py-3 font-bold text-slate-400 border-b border-slate-800">Type</th>
+                        <th class="px-4 py-3 font-bold text-slate-400 border-b border-slate-800">License</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800">
+        `;
+
+        packages.forEach(pkg => {
+            html += `
+                <tr class="hover:bg-slate-900/50 transition-colors">
+                    <td class="px-4 py-3 text-slate-200 font-medium">${pkg.name}</td>
+                    <td class="px-4 py-3 text-orange-300 font-mono">${pkg.version}</td>
+                    <td class="px-4 py-3 text-slate-500 text-[10px] uppercase">${pkg.type}</td>
+                    <td class="px-4 py-3 text-slate-600 text-[10px]">${pkg.license || '-'}</td>
+                </tr>
+            `;
+        });
+
+        html += `</tbody></table>`;
+        content.innerHTML = html;
+    }
+
+    function filterBOMTable() {
+        const query = document.getElementById('bom-search').value.toLowerCase();
+        const filtered = fullBOMData.filter(pkg =>
+            pkg.name.toLowerCase().includes(query) ||
+            pkg.version.toLowerCase().includes(query)
+        );
+        renderBOMTable(filtered);
+    }
+
+    // --- RELEASE FINDER LOGIC ---
+    async function findUpstreamReleases() {
+        const query = document.getElementById('release-search-query').value.trim();
+        if (!query) return alert("Enter an image tag to search for");
+
+        const btn = document.getElementById('release-find-btn');
+        const results = document.getElementById('release-results');
+
+        btn.disabled = true;
+        btn.innerHTML = `<svg class="animate-spin h-4 w-4 mr-2" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Searching...`;
+        results.innerHTML = `
+            <div class="flex flex-col items-center justify-center h-full gap-4 text-cyan-400 animate-pulse">
+                <div class="text-sm font-bold uppercase tracking-widest text-center">Scanning RKE2, K3s, and Rancher image lists...<br><span class="text-[10px] font-normal lowercase">(This may take 10-15 seconds for initial cache)</span></div>
+            </div>
+        `;
+
+        try {
+            const resp = await fetch(`api/upstream/correlate?image_query=${encodeURIComponent(query)}`);
+            const data = await resp.json();
+
+            if (data.error) throw new Error(data.error);
+
+            if (!data.results || data.results.length === 0) {
+                results.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full gap-2 text-slate-500 italic">
+                        <span>No matches found in the last 30 releases of RKE2, K3s, or Rancher.</span>
+                        <span class="text-[10px]">Try a partial name if the exact tag isn't matching.</span>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = `
+                <div class="prose prose-invert max-w-none">
+                    <div class="flex items-center gap-3 mb-6 border-b border-slate-800 pb-4">
+                        <span class="bg-cyan-900/40 text-cyan-400 p-2 rounded-lg">⎐</span>
+                        <h2 class="text-xl font-bold m-0 text-white">Upstream Release Correlation</h2>
+                    </div>
+                    <p class="text-xs text-slate-400 mb-4">The image <span class="text-cyan-400 font-bold">${query}</span> was found in the following bundled releases:</p>
+                    
+                    <div class="grid grid-cols-1 gap-4">
+            `;
+
+            // Group by product
+            const grouped = data.results.reduce((acc, curr) => {
+                acc[curr.product] = acc[curr.product] || [];
+                acc[curr.product].push(curr.release);
+                return acc;
+            }, {});
+
+            Object.entries(grouped).forEach(([product, releases]) => {
+                const colorClass = product === 'rke2' ? 'text-blue-400' : (product === 'k3s' ? 'text-emerald-400' : 'text-purple-400');
+                const showMore = releases.length > 10;
+                const visible = releases.slice(0, 10);
+                const hidden = releases.slice(10);
+                const groupId = `release-group-${product}`;
+
+                html += `
+                    <div class="bg-slate-900 border border-slate-800 p-4 rounded-xl">
+                        <div class="flex justify-between items-center mb-3">
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs font-bold uppercase tracking-widest ${colorClass}">${product}</span>
+                                <span class="text-[10px] text-slate-500 italic">Bundled Releases</span>
+                            </div>
+                            <span class="text-[10px] font-bold text-slate-500">${releases.length} Total</span>
+                        </div>
+                        <div class="flex flex-wrap gap-2" id="${groupId}">
+                            ${visible.map(r => `
+                                <a href="https://github.com/${product === 'rke2' ? 'rancher/rke2' : (product === 'k3s' ? 'k3s-io/k3s' : 'rancher/rancher')}/releases/tag/${r.replace('+', '%2B')}" 
+                                   target="_blank"
+                                   class="px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-cyan-500/50 rounded-lg text-xs font-mono text-slate-300 transition-all no-underline">
+                                   ${r}
+                                </a>
+                            `).join('')}
+                            
+                            ${showMore ? `
+                                <div id="${groupId}-hidden" class="hidden flex flex-wrap gap-2 w-full mt-0">
+                                    ${hidden.map(r => `
+                                        <a href="https://github.com/${product === 'rke2' ? 'rancher/rke2' : (product === 'k3s' ? 'k3s-io/k3s' : 'rancher/rancher')}/releases/tag/${r.replace('+', '%2B')}" 
+                                           target="_blank"
+                                           class="px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-cyan-500/50 rounded-lg text-xs font-mono text-slate-300 transition-all no-underline">
+                                           ${r}
+                                        </a>
+                                    `).join('')}
+                                </div>
+                                <button onclick="document.getElementById('${groupId}-hidden').classList.toggle('hidden'); this.textContent = document.getElementById('${groupId}-hidden').classList.contains('hidden') ? 'Show All ${releases.length} Releases' : 'Show Less'" 
+                                        class="mt-2 text-[10px] font-bold text-cyan-400 hover:text-cyan-300 transition-colors uppercase tracking-tight">
+                                    Show All ${releases.length} Releases
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+
+            html += `</div></div>`;
+            results.innerHTML = html;
+
+        } catch (err) {
+            results.innerHTML = `<div class="p-4 bg-red-900/20 border border-red-800 text-red-400 rounded-lg text-sm">${err.message}</div>`;
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = `<span>Search Upstream Releases</span>`;
         }
     }
 </script>
